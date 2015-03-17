@@ -113,9 +113,9 @@ func CurrentTraceId() int64 {
 	return traceId
 }
 
-// Record starts recording.  Because Run must not be allowed to block,
-// buffer must be greater than zero.  If a Logger is provided, then
-// errors that occur during recording will be logged.
+// Record starts recording in a goroutine.  Because Run must not be
+// allowed to block, buffer must be greater than zero.  If a Logger is
+// provided, then errors that occur during recording will be logged.
 func Record(rec Recorder, buffer int, logger *log.Logger) error {
 	if buffer < 1 {
 		return errBufferRequired
@@ -154,7 +154,7 @@ func record(rec Recorder, logger *log.Logger) {
 // As a caller convenience, if traceId is non-zero, then that value is
 // used instead of generating a probablistically unique id.  This may
 // be useful for callers that want to generate their own id values.
-func New(traceId int64) (*Span, error) {
+func New(traceId int64, kind string, name string) (*Span, error) {
 	if spans == nil {
 		return nil, errRecNotActive
 	}
@@ -175,13 +175,15 @@ func New(traceId int64) (*Span, error) {
 		SpanId:  spanId,
 		TraceId: traceId,
 		Process: Process,
+		Kind:    kind,
+		Name:    name,
 	}, nil
 }
 
 // Continue continues an existing trace.  If recording is active, a
 // new Span instance is allocated and returned, otherwise no
 // allocation occurs and nil is returned (along with an error).
-func Continue() (*Span, error) {
+func Continue(kind string, name string) (*Span, error) {
 	if spans == nil {
 		return nil, errRecNotActive
 	}
@@ -202,6 +204,8 @@ func Continue() (*Span, error) {
 		TraceId:  traceId,
 		ParentId: parentId,
 		Process:  Process,
+		Kind:     kind,
+		Name:     name,
 	}, nil
 }
 
@@ -296,11 +300,9 @@ func ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.HandlerFunc)
 	}
 
 	// Start a new trace, either using an existing id (from the request header) or a new one
-	s, err := New(traceId)
+	s, err := New(traceId, KindRequest, fmt.Sprintf("%s %s", req.Method, req.URL.Path))
 	if err == nil {
 		s.ParentId = parentId
-		s.Kind = KindRequest
-		s.Name = fmt.Sprintf("%s %s", req.Method, req.URL.Path)
 
 		// Add headers
 		req.Header.Set(HeaderKey, fmt.Sprintf("%d:%d", s.TraceId, s.SpanId))

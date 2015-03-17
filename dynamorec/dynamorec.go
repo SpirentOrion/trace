@@ -16,9 +16,9 @@ type DynamoRecorder struct {
 }
 
 func New(region string, tableName string, accessKey string, secretKey string) (*DynamoRecorder, error) {
-	auth := aws.Auth{
-		AccessKey: accessKey,
-		SecretKey: secretKey,
+	auth, err := aws.GetAuth(accessKey, secretKey, "", time.Time{})
+	if err != nil {
+		return nil, err
 	}
 	server := &dynamodb.Server{
 		Auth:   auth,

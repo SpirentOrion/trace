@@ -34,7 +34,7 @@ func TestNoContext(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	s, err := New(1)
+	s, err := New(1, "testing", "TestNew")
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
@@ -52,7 +52,7 @@ func TestNew(t *testing.T) {
 		t.Error("New() allocated span without process")
 	}
 
-	s, err = New(0)
+	s, err = New(0, "testing", "TestNew")
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
@@ -68,7 +68,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestContinue(t *testing.T) {
-	s0, err := New(0)
+	s0, err := New(0, "testing", "TestContinue")
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
@@ -83,7 +83,7 @@ func TestContinue(t *testing.T) {
 			t.Errorf("CurrentTraceId() returned invalid id %x, expected %x", traceId, s0.TraceId)
 		}
 
-		s1, err := Continue()
+		s1, err := Continue("testing", "TestContinue")
 		if err != nil {
 			t.Log(err)
 			t.FailNow()
