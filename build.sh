@@ -25,4 +25,5 @@ fi
 
 go get -t ${REPO_PATH}
 go build -a -v ${REPO_PATH}
+go build -a -v -o example/example ${REPO_PATH}/example
 go test ${REPO_PATH}
