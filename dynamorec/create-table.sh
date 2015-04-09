@@ -2,29 +2,29 @@
 
 read -r -d '' JSON <<'EOF'
 {
-    "TableName": "Trace",
+    "TableName": "Traces",
     "AttributeDefinitions": [
         {
-            "AttributeName": "SpanId",
+            "AttributeName": "span_id",
             "AttributeType": "N"
         },
         {
-            "AttributeName": "TraceId",
+            "AttributeName": "trace_id",
             "AttributeType": "N"
         }
     ],
     "KeySchema": [
         {
-            "AttributeName": "SpanId",
+            "AttributeName": "span_id",
             "KeyType": "HASH"
         }
     ],
     "GlobalSecondaryIndexes": [
         {
-            "IndexName": "TraceId",
+            "IndexName": "trace_id",
             "KeySchema": [
                 {
-                    "AttributeName": "TraceId",
+                    "AttributeName": "trace_id",
                     "KeyType": "HASH"
                 }
             ],

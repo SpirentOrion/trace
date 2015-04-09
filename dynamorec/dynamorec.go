@@ -24,7 +24,7 @@ func New(region string, tableName string, accessKey string, secretKey string) (*
 		Auth:   auth,
 		Region: aws.Regions[region],
 	}
-	table := server.NewTable(tableName, dynamodb.PrimaryKey{KeyAttribute: dynamodb.NewNumericAttribute("SpanId", "")})
+	table := server.NewTable(tableName, dynamodb.PrimaryKey{KeyAttribute: dynamodb.NewNumericAttribute("span_id", "")})
 	return &DynamoRecorder{Table: table}, nil
 }
 
@@ -39,24 +39,24 @@ func (r *DynamoRecorder) Start(s *trace.Span) error {
 
 	attrs[0] = dynamodb.Attribute{
 		Type:  dynamodb.TYPE_NUMBER,
-		Name:  "TraceId",
+		Name:  "trace_id",
 		Value: strconv.FormatInt(s.TraceId, 10),
 	}
 	attrs[1] = dynamodb.Attribute{
 		Type:  dynamodb.TYPE_NUMBER,
-		Name:  "ParentId",
+		Name:  "parent_id",
 		Value: strconv.FormatInt(s.ParentId, 10),
 	}
 	attrs[2] = dynamodb.Attribute{
 		Type:  dynamodb.TYPE_STRING,
-		Name:  "Start",
+		Name:  "start",
 		Value: s.Start.Format(time.RFC3339Nano),
 	}
 
 	if s.Process != "" {
 		attrs = append(attrs, dynamodb.Attribute{
 			Type:  dynamodb.TYPE_STRING,
-			Name:  "Process",
+			Name:  "process",
 			Value: s.Process,
 		})
 	}
@@ -64,7 +64,7 @@ func (r *DynamoRecorder) Start(s *trace.Span) error {
 	if s.Kind != "" {
 		attrs = append(attrs, dynamodb.Attribute{
 			Type:  dynamodb.TYPE_STRING,
-			Name:  "Kind",
+			Name:  "kind",
 			Value: s.Kind,
 		})
 	}
@@ -72,7 +72,7 @@ func (r *DynamoRecorder) Start(s *trace.Span) error {
 	if s.Name != "" {
 		attrs = append(attrs, dynamodb.Attribute{
 			Type:  dynamodb.TYPE_STRING,
-			Name:  "Name",
+			Name:  "name",
 			Value: s.Name,
 		})
 	}
@@ -80,7 +80,7 @@ func (r *DynamoRecorder) Start(s *trace.Span) error {
 	if len(s.Data) > 0 {
 		attrs = append(attrs, dynamodb.Attribute{
 			Type:  dynamodb.TYPE_BINARY,
-			Name:  "Data",
+			Name:  "data",
 			Value: base64.StdEncoding.EncodeToString(s.Data),
 		})
 	}
@@ -95,7 +95,7 @@ func (r *DynamoRecorder) Finish(s *trace.Span) error {
 	attrs := []dynamodb.Attribute{
 		dynamodb.Attribute{
 			Type:  dynamodb.TYPE_STRING,
-			Name:  "Finish",
+			Name:  "finish",
 			Value: s.Finish.Format(time.RFC3339Nano),
 		},
 	}
