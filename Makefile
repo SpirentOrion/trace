@@ -16,6 +16,7 @@ export GOPATH	= /go
 export PATH	:= /go/bin:/usr/src/go/bin:$(PATH)
 ORG_PATH	= github.com/SpirentOrion
 REPO_PATH	= $(ORG_PATH)/$(PACKAGE_NAME)
+BUILD_PATH	= $(GOPATH)/src/$(REPO_PATH)
 
 setup:
 	@mkdir -p $(GOPATH)/src/$(ORG_PATH)
@@ -26,7 +27,7 @@ setup:
 else
 
 # Local build setup
-REPO_PATH       = .
+BUILD_PATH	= .
 
 setup:
 
@@ -37,8 +38,9 @@ endif
 #
 
 build: setup
-	go get -t $(REPO_PATH)
-	go build -a -v $(REPO_PATH)
-	go test $(REPO_PATH)
+	(cd $(BUILD_PATH) && \
+	 go get -t ./... && \
+	 go build -a -v ./... && \
+	 go test ./...)
 
 clean:
