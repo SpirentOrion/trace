@@ -37,8 +37,8 @@ endif
 #
 
 build: setup
-	go get -t $(REPO_PATH)
-	go build -a -v $(REPO_PATH)
-	go test $(REPO_PATH)
+	go get -t $(REPO_PATH)/...
+	go build -a -v $(REPO_PATH)/...
+	go test $(REPO_PATH)/...
 
 clean:

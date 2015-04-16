@@ -16,7 +16,8 @@ import (
 
 const (
 	// Trace kinds
-	KindRequest = "request"
+	KindRequest   = "request"
+	KindDatastore = "datastore"
 
 	// gls.ContextManager keys
 	spanIdKey  = "trace:spanid"
