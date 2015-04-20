@@ -24,7 +24,10 @@ func New(region string, tableName string, accessKey string, secretKey string) (*
 		Auth:   auth,
 		Region: aws.Regions[region],
 	}
-	table := server.NewTable(tableName, dynamodb.PrimaryKey{KeyAttribute: dynamodb.NewNumericAttribute("span_id", "")})
+	table := server.NewTable(tableName, dynamodb.PrimaryKey{
+		KeyAttribute:   dynamodb.NewNumericAttribute("trace_id", ""),
+		RangeAttribute: dynamodb.NewNumericAttribute("span_id", ""),
+	})
 	return &DynamoRecorder{Table: table}, nil
 }
 
@@ -33,21 +36,17 @@ func (r *DynamoRecorder) String() string {
 }
 
 func (r *DynamoRecorder) Start(s *trace.Span) error {
-	hashKey := strconv.FormatInt(s.SpanId, 10)
+	traceId := strconv.FormatInt(s.TraceId, 10)
+	spanId := strconv.FormatInt(s.SpanId, 10)
 
-	attrs := make([]dynamodb.Attribute, 3, 6)
+	attrs := make([]dynamodb.Attribute, 2, 5)
 
 	attrs[0] = dynamodb.Attribute{
-		Type:  dynamodb.TYPE_NUMBER,
-		Name:  "trace_id",
-		Value: strconv.FormatInt(s.TraceId, 10),
-	}
-	attrs[1] = dynamodb.Attribute{
 		Type:  dynamodb.TYPE_NUMBER,
 		Name:  "parent_id",
 		Value: strconv.FormatInt(s.ParentId, 10),
 	}
-	attrs[2] = dynamodb.Attribute{
+	attrs[1] = dynamodb.Attribute{
 		Type:  dynamodb.TYPE_STRING,
 		Name:  "start",
 		Value: s.Start.Format(time.RFC3339Nano),
@@ -85,12 +84,15 @@ func (r *DynamoRecorder) Start(s *trace.Span) error {
 		})
 	}
 
-	_, err := r.Table.PutItem(hashKey, "", attrs)
+	_, err := r.Table.PutItem(traceId, spanId, attrs)
 	return err
 }
 
 func (r *DynamoRecorder) Finish(s *trace.Span) error {
-	key := &dynamodb.Key{HashKey: strconv.FormatInt(s.SpanId, 10)}
+	key := &dynamodb.Key{
+		HashKey:  strconv.FormatInt(s.TraceId, 10),
+		RangeKey: strconv.FormatInt(s.SpanId, 10),
+	}
 
 	attrs := []dynamodb.Attribute{
 		dynamodb.Attribute{
