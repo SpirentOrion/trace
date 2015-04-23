@@ -15,27 +15,14 @@ import (
 )
 
 const (
-	// Trace kinds
-	KindRequest   = "request"
-	KindDatastore = "datastore"
-
 	// gls.ContextManager keys
 	spanIdKey  = "trace:spanid"
 	traceIdKey = "trace:traceid"
 )
 
 var (
-	// Process is process name used when New or Continue creates new Spans.
+	// Process is process name used when New or Continue create new Spans.
 	Process string
-
-	// HeaderKey is the key used when ServeHTTP inserts an id header in requests or responses.
-	HeaderKey = "X-Request-Id"
-
-	// HonorReqHeader determines whether or not ServeHTTP honors id headers in requests.
-	HonorReqHeader bool = false
-
-	// AddRespHeader determines whether or not ServeHTTP adds id headers to responses.
-	AddRespHeader bool = true
 
 	// Internal state
 	cm    *gls.ContextManager
@@ -55,17 +42,17 @@ func init() {
 
 // Span tracks a processing activity within a trace.
 type Span struct {
-	SpanId          int64     `yaml:"span_id"`
-	TraceId         int64     `yaml:"trace_id"`
-	ParentId        int64     `yaml:"parent_id"`
-	Process         string    `yaml:",omitempty"`
-	Kind            string    `yaml:",omitempty"`
-	Name            string    `yaml:",omitempty"`
-	Data            []byte    `yaml:",omitempty"`
-	Start           time.Time `yaml:"-"`
-	StartTimestamp  string    `yaml:"start,omitempty"`
-	Finish          time.Time `yaml:"-"`
-	FinishTimestamp string    `yaml:"finish,omitempty"`
+	SpanId          int64                  `yaml:"span_id"`
+	TraceId         int64                  `yaml:"trace_id"`
+	ParentId        int64                  `yaml:"parent_id"`
+	Process         string                 `yaml:",omitempty"`
+	Kind            string                 `yaml:",omitempty"`
+	Name            string                 `yaml:",omitempty"`
+	Data            map[string]interface{} `yaml:",omitempty"`
+	Start           time.Time              `yaml:"-"`
+	StartTimestamp  string                 `yaml:"start,omitempty"`
+	Finish          time.Time              `yaml:"-"`
+	FinishTimestamp string                 `yaml:"finish,omitempty"`
 	recStart        bool
 	recError        bool
 }
@@ -276,24 +263,45 @@ func GenerateId() (int64, error) {
 	return 0, errors.New("rand.Reader failed to produce a useable value")
 }
 
-// ServeHTTP is a middleware function that facilitates HTTP request tracing.
+type Handler struct {
+	// Kind is the kind value used when starting new traces.
+	Kind string
+	// HeaderKey is the key used when ServeHTTP inserts an id header in requests or responses.
+	HeaderKey string
+	// HonorReqHeader determines whether or not ServeHTTP honors id headers in requests.
+	HonorReqHeader bool
+	// AddRespHeader determines whether or not ServeHTTP adds id headers to responses.
+	AddRespHeader bool
+}
+
+// NewHandler creates a middleware handler that facilitates HTTP
+// request tracing.
 //
 // If the request contains an id header and HonorReqHeader is true,
 // then the id values are used (allowing trace contexts to span
 // services).  Otherwise a new trace id is generated. An id header is
 // optionally added to the response.
-func ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.HandlerFunc) {
+func NewHandler() *Handler {
+	return &Handler{
+		Kind:           "request",
+		HeaderKey:      "X-Request-Id",
+		HonorReqHeader: false,
+		AddRespHeader:  true,
+	}
+}
+
+func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.HandlerFunc) {
 	var (
 		traceId, parentId int64
 		s                 *Span
 	)
 
 	// Optionally honor incoming id headers. If present, header must be in the form "traceId:parentId".
-	if HonorReqHeader {
-		if _, exists := req.Header[HeaderKey]; exists {
+	if h.HonorReqHeader {
+		if _, ok := req.Header[h.HeaderKey]; ok {
 			var traceId, parentId int64
 			n, _ := fmt.Scanf("%d:%d", &traceId, &parentId)
-			if n < 2 {
+			if n < 2 || traceId < 1 || parentId < 1 {
 				traceId = 0
 				parentId = 0
 			}
@@ -301,14 +309,14 @@ func ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.HandlerFunc)
 	}
 
 	// Start a new trace, either using an existing id (from the request header) or a new one
-	s, err := New(traceId, KindRequest, fmt.Sprintf("%s %s", req.Method, req.URL.Path))
+	s, err := New(traceId, h.Kind, fmt.Sprintf("%s %s", req.Method, req.URL.Path))
 	if err == nil {
 		s.ParentId = parentId
 
 		// Add headers
-		req.Header.Set(HeaderKey, fmt.Sprintf("%d:%d", s.TraceId, s.SpanId))
-		if AddRespHeader {
-			rw.Header().Set(HeaderKey, fmt.Sprintf("%d", s.TraceId))
+		req.Header.Set(h.HeaderKey, fmt.Sprintf("%d:%d", s.TraceId, s.SpanId))
+		if h.AddRespHeader {
+			rw.Header().Set(h.HeaderKey, fmt.Sprintf("%d", s.TraceId))
 		}
 
 		// Invoke the next handler

@@ -52,7 +52,7 @@ on the host's clock and aren't necessarily synchronized.
 
 ## Recording Backends
 
-Currently, two recording backends are provided:
+Currently, two recording backend packages are provided:
 
 | Backend | Import Path |
 | :-- | :-- |

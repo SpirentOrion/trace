@@ -1,6 +1,6 @@
 PACKAGE_NAME 	= trace
 
-.PHONY: all setup build clean
+.PHONY: all setup restore build clean
 
 all: build
 
@@ -33,14 +33,16 @@ setup:
 
 endif
 
-#
-# Build
-#
+restore: setup
+	cd $(BUILD_PATH) && godep restore
 
 build: setup
 	(cd $(BUILD_PATH) && \
 	 go get -t ./... && \
 	 go build -a -v ./... && \
 	 go test ./...)
+
+rebase:
+	godep update `cat Godeps/Godeps.json | jq -r .Deps[].ImportPath`
 
 clean:

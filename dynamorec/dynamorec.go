@@ -1,7 +1,6 @@
 package dynamorec
 
 import (
-	"encoding/base64"
 	"fmt"
 	"strconv"
 	"time"
@@ -39,17 +38,17 @@ func (r *DynamoRecorder) Start(s *trace.Span) error {
 	traceId := strconv.FormatInt(s.TraceId, 10)
 	spanId := strconv.FormatInt(s.SpanId, 10)
 
-	attrs := make([]dynamodb.Attribute, 2, 5)
-
-	attrs[0] = dynamodb.Attribute{
-		Type:  dynamodb.TYPE_NUMBER,
-		Name:  "parent_id",
-		Value: strconv.FormatInt(s.ParentId, 10),
-	}
-	attrs[1] = dynamodb.Attribute{
-		Type:  dynamodb.TYPE_STRING,
-		Name:  "start",
-		Value: s.Start.Format(time.RFC3339Nano),
+	attrs := []dynamodb.Attribute{
+		{
+			Type:  dynamodb.TYPE_NUMBER,
+			Name:  "parent_id",
+			Value: strconv.FormatInt(s.ParentId, 10),
+		},
+		{
+			Type:  dynamodb.TYPE_STRING,
+			Name:  "start",
+			Value: s.Start.Format(time.RFC3339Nano),
+		},
 	}
 
 	if s.Process != "" {
@@ -76,14 +75,6 @@ func (r *DynamoRecorder) Start(s *trace.Span) error {
 		})
 	}
 
-	if len(s.Data) > 0 {
-		attrs = append(attrs, dynamodb.Attribute{
-			Type:  dynamodb.TYPE_BINARY,
-			Name:  "data",
-			Value: base64.StdEncoding.EncodeToString(s.Data),
-		})
-	}
-
 	_, err := r.Table.PutItem(traceId, spanId, attrs)
 	return err
 }
@@ -100,6 +91,16 @@ func (r *DynamoRecorder) Finish(s *trace.Span) error {
 			Name:  "finish",
 			Value: s.Finish.Format(time.RFC3339Nano),
 		},
+	}
+
+	if s.Data != nil {
+		for k, v := range s.Data {
+			attrs = append(attrs, dynamodb.Attribute{
+				Type:  dynamodb.TYPE_STRING,
+				Name:  k,
+				Value: fmt.Sprint(v),
+			})
+		}
 	}
 
 	_, err := r.Table.UpdateAttributes(key, attrs)

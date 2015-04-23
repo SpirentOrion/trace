@@ -47,8 +47,9 @@ func main() {
 	}
 
 	// Run a simple HTTP server to generate traces
+	h := trace.NewHandler()
 	fmt.Println("Listening on :8000")
 	http.ListenAndServe(":8000", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		trace.ServeHTTP(rw, req, ServeHTTP)
+		h.ServeHTTP(rw, req, ServeHTTP)
 	}))
 }

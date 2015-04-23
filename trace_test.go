@@ -138,11 +138,12 @@ func TestMiddleware(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 
-	ServeHTTP(recorder, req, func(rw http.ResponseWriter, req *http.Request) {
-		if _, exists := req.Header[HeaderKey]; !exists {
+	h := NewHandler()
+	h.ServeHTTP(recorder, req, func(rw http.ResponseWriter, req *http.Request) {
+		if _, ok := req.Header[h.HeaderKey]; !ok {
 			t.Error("ServeHTTP() failed to add request header")
 		}
-		if _, exists := rw.Header()[HeaderKey]; !exists {
+		if _, ok := rw.Header()[h.HeaderKey]; !ok {
 			t.Error("ServeHTTP() failed to add response header")
 		}
 	})

@@ -1,0 +1,10 @@
+{
+	"ImportPath": "github.com/SpirentOrion/trace",
+	"GoVersion": "go1.4.2",
+	"Deps": [
+		{
+			"ImportPath": "github.com/jtolds/gls",
+			"Rev": "9a4a02dbe491bef4bab3c24fd9f3087d6c4c6690"
+		}
+	]
+}
