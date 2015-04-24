@@ -14,6 +14,8 @@ type DynamoRecorder struct {
 	Table *dynamodb.Table
 }
 
+var _ trace.Recorder = &DynamoRecorder{}
+
 func New(region string, tableName string, accessKey string, secretKey string) (*DynamoRecorder, error) {
 	auth, err := aws.GetAuth(accessKey, secretKey, "", time.Time{})
 	if err != nil {
@@ -34,7 +36,7 @@ func (r *DynamoRecorder) String() string {
 	return fmt.Sprintf("dynamodb{%s:%s}", r.Table.Server.Region.Name, r.Table.Name)
 }
 
-func (r *DynamoRecorder) Start(s *trace.Span) error {
+func (r *DynamoRecorder) Record(s *trace.Span) error {
 	traceId := strconv.FormatInt(s.TraceId, 10)
 	spanId := strconv.FormatInt(s.SpanId, 10)
 
@@ -48,6 +50,26 @@ func (r *DynamoRecorder) Start(s *trace.Span) error {
 			Type:  dynamodb.TYPE_STRING,
 			Name:  "start",
 			Value: s.Start.Format(time.RFC3339Nano),
+		},
+		{
+			Type:  dynamodb.TYPE_NUMBER,
+			Name:  "start_unix",
+			Value: fmt.Sprintf("%.6f", float64(s.Start.UnixNano())/1e9),
+		},
+		{
+			Type:  dynamodb.TYPE_STRING,
+			Name:  "finish",
+			Value: s.Finish.Format(time.RFC3339Nano),
+		},
+		{
+			Type:  dynamodb.TYPE_NUMBER,
+			Name:  "finish_unix",
+			Value: fmt.Sprintf("%.6f", float64(s.Finish.UnixNano())/1e9),
+		},
+		{
+			Type:  dynamodb.TYPE_NUMBER,
+			Name:  "elapsed",
+			Value: fmt.Sprintf("%.6f", float64(s.Finish.Sub(s.Start).Nanoseconds())/1e9),
 		},
 	}
 
@@ -75,26 +97,8 @@ func (r *DynamoRecorder) Start(s *trace.Span) error {
 		})
 	}
 
-	_, err := r.Table.PutItem(traceId, spanId, attrs)
-	return err
-}
-
-func (r *DynamoRecorder) Finish(s *trace.Span) error {
-	key := &dynamodb.Key{
-		HashKey:  strconv.FormatInt(s.TraceId, 10),
-		RangeKey: strconv.FormatInt(s.SpanId, 10),
-	}
-
-	attrs := []dynamodb.Attribute{
-		dynamodb.Attribute{
-			Type:  dynamodb.TYPE_STRING,
-			Name:  "finish",
-			Value: s.Finish.Format(time.RFC3339Nano),
-		},
-	}
-
-	if s.Data != nil {
-		for k, v := range s.Data {
+	if s.DataMap != nil {
+		for k, v := range s.DataMap {
 			attrs = append(attrs, dynamodb.Attribute{
 				Type:  dynamodb.TYPE_STRING,
 				Name:  k,
@@ -103,6 +107,6 @@ func (r *DynamoRecorder) Finish(s *trace.Span) error {
 		}
 	}
 
-	_, err := r.Table.UpdateAttributes(key, attrs)
+	_, err := r.Table.PutItem(traceId, spanId, attrs)
 	return err
 }

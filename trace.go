@@ -29,9 +29,8 @@ var (
 	spans chan *Span
 
 	// Errors
-	errBufferRequired   = errors.New("buffer must be greater than zero")
-	errRecNotActive     = errors.New("trace recording isn't active")
-	errNoContextInStack = errors.New("no trace context in this call stack")
+	errBufferRequired = errors.New("buffer must be greater than zero")
+	errRecNotActive   = errors.New("trace recording isn't active")
 )
 
 func init() {
@@ -42,25 +41,29 @@ func init() {
 
 // Span tracks a processing activity within a trace.
 type Span struct {
-	SpanId          int64                  `yaml:"span_id"`
-	TraceId         int64                  `yaml:"trace_id"`
-	ParentId        int64                  `yaml:"parent_id"`
-	Process         string                 `yaml:",omitempty"`
-	Kind            string                 `yaml:",omitempty"`
-	Name            string                 `yaml:",omitempty"`
-	Data            map[string]interface{} `yaml:",omitempty"`
-	Start           time.Time              `yaml:"-"`
-	StartTimestamp  string                 `yaml:"start,omitempty"`
-	Finish          time.Time              `yaml:"-"`
-	FinishTimestamp string                 `yaml:"finish,omitempty"`
-	recStart        bool
-	recError        bool
+	SpanId    int64                  `yaml:"span_id"`
+	TraceId   int64                  `yaml:"trace_id"`
+	ParentId  int64                  `yaml:"parent_id"`
+	Process   string                 `yaml:",omitempty"`
+	Kind      string                 `yaml:",omitempty"`
+	Name      string                 `yaml:",omitempty"`
+	Start     time.Time              `yaml:"-"`
+	StartStr  string                 `yaml:"start,omitempty"`
+	Finish    time.Time              `yaml:"-"`
+	FinishStr string                 `yaml:"finish,omitempty"`
+	DataMap   map[string]interface{} `yaml:",omitempty,inline"`
 }
 
-// Recorder instances persist TraceSpans to an external datastore.
+func (s *Span) Data() map[string]interface{} {
+	if s.DataMap == nil {
+		s.DataMap = make(map[string]interface{})
+	}
+	return s.DataMap
+}
+
+// Recorder instances persist Spans to an external datastore.
 type Recorder interface {
-	Start(s *Span) error
-	Finish(s *Span) error
+	Record(s *Span) error
 }
 
 // CurrentSpanId returns the caller's current span id.
@@ -116,20 +119,10 @@ func Record(rec Recorder, buffer int, logger *log.Logger) error {
 }
 
 func record(rec Recorder, logger *log.Logger) {
-	for ts := range spans {
-		if !ts.recStart {
-			ts.recStart = true
-			if err := rec.Start(ts); err != nil {
-				ts.recError = true
-				if logger != nil {
-					log.Printf("failed to record trace %x span %x start: %s", ts.TraceId, ts.SpanId, err)
-				}
-			}
-		} else if !ts.recError {
-			if err := rec.Finish(ts); err != nil {
-				if logger != nil {
-					log.Printf("failed to record trace %x span %x finish: %s", ts.TraceId, ts.SpanId, err)
-				}
+	for s := range spans {
+		if err := rec.Record(s); err != nil {
+			if logger != nil {
+				log.Printf("failed to record trace %x span %x: %s", s.TraceId, s.SpanId, err)
 			}
 		}
 	}
@@ -179,7 +172,8 @@ func Continue(kind string, name string) (*Span, error) {
 	parentId := CurrentSpanId()
 	traceId := CurrentTraceId()
 	if parentId == 0 || traceId == 0 {
-		return nil, errNoContextInStack
+		s, err := New(0, kind, name)
+		return s, err
 	}
 
 	spanId, err := GenerateId()
@@ -205,18 +199,16 @@ func Run(s *Span, f func()) {
 	// nil. We quietly tolerate so that callers don't need to know
 	// or care whether recording is active.
 	if s != nil && spans != nil {
-		// Record the span start
-		s.Start = time.Now()
-		s.StartTimestamp = s.Start.Format(time.RFC3339Nano)
-		s.Finish = time.Time{}
-		spans <- s
-
 		// Setup to record the span finish
 		defer func() {
 			s.Finish = time.Now()
-			s.FinishTimestamp = s.Finish.Format(time.RFC3339Nano)
+			s.FinishStr = s.Finish.Format(time.RFC3339Nano)
 			spans <- s
 		}()
+
+		// Save the span start time
+		s.Start = time.Now()
+		s.StartStr = s.Start.Format(time.RFC3339Nano)
 
 		// Stash the span id and trace id on the stack and invoke f
 		values := gls.Values{

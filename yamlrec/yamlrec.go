@@ -9,29 +9,26 @@ import (
 )
 
 type YAMLRecorder struct {
-	writer io.Writer
+	io.Writer
 }
 
+var _ trace.Recorder = &YAMLRecorder{}
+
 func New(writer io.Writer) (*YAMLRecorder, error) {
-	return &YAMLRecorder{writer: writer}, nil
+	return &YAMLRecorder{writer}, nil
 }
 
 func (r *YAMLRecorder) String() string {
 	return "yaml"
 }
 
-func (r *YAMLRecorder) Start(s *trace.Span) error {
-	// Intentionally left unimplemented -- YAMLRecorder only writes new documents as spans finish
-	return nil
-}
-
-func (r *YAMLRecorder) Finish(s *trace.Span) error {
+func (r *YAMLRecorder) Record(s *trace.Span) error {
 	buf, err := yaml.Marshal(s)
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintln(r.writer, "---") // document separator
-	_, err = r.writer.Write(buf)
+	fmt.Fprintln(r, "---") // document separator
+	_, err = r.Write(buf)
 	return err
 }

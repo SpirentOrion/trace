@@ -10,11 +10,7 @@ import (
 type nullRecorder struct {
 }
 
-func (r *nullRecorder) Start(s *Span) error {
-	return nil
-}
-
-func (r *nullRecorder) Finish(s *Span) error {
+func (r *nullRecorder) Record(s *Span) error {
 	return nil
 }
 
