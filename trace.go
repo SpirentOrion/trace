@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"net/http"
 	"os"
@@ -66,6 +65,11 @@ type Recorder interface {
 	Record(s *Span) error
 }
 
+// Logger is an interface compatible with log.Logger.
+type Logger interface {
+	Println(v ...interface{})
+}
+
 // CurrentSpanId returns the caller's current span id.
 func CurrentSpanId() int64 {
 	if cm == nil {
@@ -107,7 +111,7 @@ func CurrentTraceId() int64 {
 // Record starts recording in a goroutine.  Because Run must not be
 // allowed to block, buffer must be greater than zero.  If a Logger is
 // provided, then errors that occur during recording will be logged.
-func Record(rec Recorder, buffer int, logger *log.Logger) error {
+func Record(rec Recorder, buffer int, logger Logger) error {
 	if buffer < 1 {
 		return errBufferRequired
 	}
@@ -118,11 +122,11 @@ func Record(rec Recorder, buffer int, logger *log.Logger) error {
 	return nil
 }
 
-func record(rec Recorder, logger *log.Logger) {
+func record(rec Recorder, logger Logger) {
 	for s := range spans {
 		if err := rec.Record(s); err != nil {
 			if logger != nil {
-				log.Printf("failed to record trace %x span %x: %s", s.TraceId, s.SpanId, err)
+				logger.Println(fmt.Sprintf("failed to record trace %x span %x: %s", s.TraceId, s.SpanId, err))
 			}
 		}
 	}
