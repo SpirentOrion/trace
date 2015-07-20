@@ -165,6 +165,12 @@ func New(traceId int64, kind string, name string) (*Span, error) {
 	}, nil
 }
 
+// MaybeNew starts a new trace but ignores errors.
+func MaybeNew(traceId int64, kind string, name string) *Span {
+	s, _ := New(traceId, kind, name)
+	return s
+}
+
 // Continue continues an existing trace.  If recording is active, a
 // new Span instance is allocated and returned, otherwise no
 // allocation occurs and nil is returned (along with an error).
@@ -193,6 +199,12 @@ func Continue(kind string, name string) (*Span, error) {
 		Kind:     kind,
 		Name:     name,
 	}, nil
+}
+
+// MaybeContinue continues an existing trace but ignores errors.
+func MaybeContinue(kind string, name string) *Span {
+	s, _ := Continue(kind, name)
+	return s
 }
 
 // Run records a Span (to provide visibility that the span has
