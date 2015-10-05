@@ -307,7 +307,6 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http
 	// Optionally honor incoming id headers. If present, header must be in the form "traceId:parentId".
 	if h.HonorReqHeader {
 		if hdr := req.Header.Get(h.HeaderKey); hdr != "" {
-			var traceId, parentId int64
 			n, _ := fmt.Sscanf(hdr, "%d:%d", &traceId, &parentId)
 			if n < 2 || traceId < 1 || parentId < 1 {
 				traceId = 0
