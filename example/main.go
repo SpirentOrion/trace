@@ -1,53 +1,56 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/SpirentOrion/trace"
-	"github.com/SpirentOrion/trace/yamlrec"
 )
 
 func ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	// Spans that run as goroutines must be started with trace.Go in order to maintain trace/span context
-	ts, _ := trace.Continue("work", "sub1")
-	trace.Go(ts, sub2)
+	// Spans may be recorded directly in a single goroutine
+	trace.Do(req.Context(), "work", "sub2", sub2)
 
-	// Spans that run normally are started with trace.Run
-	ts, _ = trace.Continue("work", "sub2")
-	trace.Run(ts, sub3)
+	// Or, spans may run as new goroutines
+	trace.Do(req.Context(), "work", "sub3", func(ctx context.Context) {
+		go sub3(ctx)
+	})
 }
 
-func sub2() {
+func sub2(ctx context.Context) {
 	time.Sleep(5 * time.Second)
 }
 
-func sub3() {
+func sub3(ctx context.Context) {
 	time.Sleep(1 * time.Second)
 }
 
 func main() {
-	// Record traces to example.yaml
-	f, err := os.OpenFile("example.yaml", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	// Record traces to example.json
+	f, err := os.OpenFile("example.json", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		panic(err)
 	}
 
-	rec, err := yamlrec.New(f)
-	if err != nil {
+	var rec trace.Recorder
+	if rec, err = trace.NewJSONRecorder(f); err != nil {
 		panic(err)
 	}
 
-	err = trace.Record(rec, 100, log.New(os.Stderr, "[trace] ", log.LstdFlags))
-	if err != nil {
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer func() {
+		cancelFunc()
+	}()
+
+	if ctx, err = trace.Record(ctx, rec); err != nil {
 		panic(err)
 	}
 
 	// Run a simple HTTP server to generate traces
-	h := trace.NewHandler()
+	h := trace.NewHandler(ctx)
 	fmt.Println("Listening on :8000")
 	http.ListenAndServe(":8000", http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		h.ServeHTTP(rw, req, ServeHTTP)

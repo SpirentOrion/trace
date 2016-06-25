@@ -52,25 +52,23 @@ on the host's clock and aren't necessarily synchronized.
 
 ## Recording Backends
 
-Currently, two recording backend packages are provided:
+Currently, a single recording backend (JSON) is provided. Recording to other
+formats or backends (e.g. databases) may be performed by types implementing the
+`Recorder` interface:
 
-| Backend | Import Path |
-| :-- | :-- |
-| DynamoDB | `github.com/SpirentOrion/trace/dynamorec` |
-| YAML | `github.com/SpirentOrion/trace/yamlrec` |
+    type Recorder interface {
+        Record(s *Span) error
+    }
 
 ## Example
 
-A simple [example](https://github.com/SpirentOrion/trace/blob/master/example/main.go)
-is provided with trace recording via the YAML recorder:
+A simple [example](https://github.com/SpirentOrion/trace/blob/v2/example/main.go)
+is provided to demonstrate trace recording via the JSON recorder:
 
-    $ cd $GOPATH/src/github.com/SpirentOrion/trace/example
+    $ cd $GOPATH/src/gopkg.in/SpirentOrion/trace.v2/example
     $ go run main.go
 
 Separately:
 
-    $ curl -i http://127.0.0.1/foo/bar
-    $ cat example.yaml
-
-Note that the YAML recorder only records finished spans.  Each span is
-rendered as a separate document in the YAML stream.
+    $ curl -i http://127.0.0.1:8000/foo/bar
+    $ cat example.json

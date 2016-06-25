@@ -1,337 +1,179 @@
 package trace
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
-	"net/http"
-	"os"
 	"time"
-
-	"github.com/jtolds/gls"
 )
 
-const (
-	// gls.ContextManager keys
-	spanIdKey  = "trace:spanid"
-	traceIdKey = "trace:traceid"
-)
+const defaultBuffer = 256
 
 var (
-	// Process is process name used when New or Continue create new Spans.
-	Process string
-
-	// Internal state
-	cm    *gls.ContextManager
-	spans chan *Span
-
-	// Errors
-	errBufferRequired = errors.New("buffer must be greater than zero")
-	errRecNotActive   = errors.New("trace recording isn't active")
+	errMissingContext  = errors.New("context is required to start trace recording")
+	errMissingRecorder = errors.New("recorder is required to start trace recording")
 )
-
-func init() {
-	// "argv[0]:pid@hostname"
-	host, _ := os.Hostname()
-	Process = fmt.Sprintf("%s:%d@%s", os.Args[0], os.Getpid(), host)
-}
-
-// Span tracks a processing activity within a trace.
-type Span struct {
-	SpanId    int64                  `yaml:"span_id"`
-	TraceId   int64                  `yaml:"trace_id"`
-	ParentId  int64                  `yaml:"parent_id"`
-	Process   string                 `yaml:",omitempty"`
-	Kind      string                 `yaml:",omitempty"`
-	Name      string                 `yaml:",omitempty"`
-	Start     time.Time              `yaml:"-"`
-	StartStr  string                 `yaml:"start,omitempty"`
-	Finish    time.Time              `yaml:"-"`
-	FinishStr string                 `yaml:"finish,omitempty"`
-	DataMap   map[string]interface{} `yaml:",omitempty,inline"`
-}
-
-func (s *Span) Data() map[string]interface{} {
-	if s.DataMap == nil {
-		s.DataMap = make(map[string]interface{})
-	}
-	return s.DataMap
-}
-
-// Recorder instances persist Spans to an external datastore.
-type Recorder interface {
-	Record(s *Span) error
-}
 
 // Logger is an interface compatible with log.Logger.
 type Logger interface {
 	Println(v ...interface{})
 }
 
-// CurrentSpanId returns the caller's current span id.
-func CurrentSpanId() int64 {
-	if cm == nil {
-		return 0
+// Record starts trace recording in a context. If the context is canceled then
+// trace recording stops.
+func Record(ctx context.Context, rec Recorder) (context.Context, error) {
+	if ctx == nil {
+		return nil, errMissingContext
+	}
+	if rec == nil {
+		return nil, errMissingRecorder
 	}
 
-	v, ok := cm.GetValue(spanIdKey)
-	if !ok {
-		return 0
+	buffer := contextBuffer(ctx)
+	if buffer <= 0 {
+		buffer = defaultBuffer
 	}
 
-	spanId, ok := v.(int64)
-	if !ok {
-		return 0
-	}
+	spans := make(chan *Span, buffer)
+	ctx = withSpans(ctx, spans)
 
-	return spanId
+	go record(ctx, rec)
+	return ctx, nil
 }
 
-// CurrentTraceId returns the caller's current trace id.
-func CurrentTraceId() int64 {
-	if cm == nil {
-		return 0
-	}
+func record(ctx context.Context, rec Recorder) {
+	spans, logger := contextSpans(ctx), contextLogger(ctx)
+	for {
+		select {
+		case span := <-spans:
+			span.StartStr = span.Start.Format(time.RFC3339Nano)
+			span.FinishStr = span.Finish.Format(time.RFC3339Nano)
+			if err := rec.Record(span); err != nil {
+				if logger != nil {
+					msg := fmt.Sprintf("trace: failed to record trace %x span %x: %s", span.TraceID, span.SpanID, err)
+					logger.Println(msg)
+				}
+			}
 
-	v, ok := cm.GetValue(traceIdKey)
-	if !ok {
-		return 0
+		case <-ctx.Done():
+			return
+		}
 	}
-
-	traceId, ok := v.(int64)
-	if !ok {
-		return 0
-	}
-
-	return traceId
 }
 
-// Record starts recording in a goroutine.  Because Run must not be
-// allowed to block, buffer must be greater than zero.  If a Logger is
-// provided, then errors that occur during recording will be logged.
-func Record(rec Recorder, buffer int, logger Logger) error {
-	if buffer < 1 {
-		return errBufferRequired
+// Do starts a new trace span if recording is active in the context. If a trace
+// is already active in ctx then the new trace span continues under the existing
+// trace id, otherwise a new trace id is generated.
+//
+// The activity function act is always invoked, either with a new context
+// representing a new trace span, or with the caller-provided ctx if recording
+// is not active or an error occurs.
+func Do(ctx context.Context, kind string, name string, act func(context.Context)) {
+	// If recording is not active, we are done right away
+	var spans chan *Span
+	if ctx != nil {
+		spans = contextSpans(ctx)
+	}
+	if spans == nil {
+		act(ctx)
+		return
 	}
 
-	cm = gls.NewContextManager()
-	spans = make(chan *Span, buffer)
-	go record(rec, logger)
+	// Generate a new span id
+	spanID, err := GenerateID(ctx)
+	if err != nil {
+		act(ctx)
+		return
+	}
+
+	// If a a trace is already active then the new span continues under the existing
+	var traceID, parentID int64
+	if span := contextSpan(ctx); span != nil {
+		traceID = span.TraceID
+		parentID = span.SpanID
+	} else {
+		if traceID = contextTraceID(ctx); traceID == 0 {
+			if traceID, err = GenerateID(ctx); err != nil {
+				act(ctx)
+				return
+			}
+		}
+		parentID = contextParentID(ctx)
+	}
+
+	// Allocate a new span and ensure that it is recorded even if a panic occurs
+	span := &Span{
+		SpanID:   spanID,
+		TraceID:  traceID,
+		ParentID: parentID,
+		Process:  contextProcess(ctx),
+		Kind:     kind,
+		Name:     name,
+		Start:    time.Now(),
+	}
+	defer func() {
+		span.Finish = time.Now()
+		spans <- span
+	}()
+
+	// Perform the activity with a new context
+	act(withSpan(ctx, span))
+}
+
+// CurrentSpanID returns the current span id if a trace is active in the
+// context. Otherwise it returns 0.
+func CurrentSpanID(ctx context.Context) (spanID int64) {
+	if ctx != nil {
+		if span := contextSpan(ctx); span != nil {
+			spanID = span.SpanID
+		}
+	}
+	return
+}
+
+// CurrentTraceID returns the current trace id if a trace is active in the
+// context. Otherwise it returns 0.
+func CurrentTraceID(ctx context.Context) (traceID int64) {
+	if ctx != nil {
+		if span := contextSpan(ctx); span != nil {
+			traceID = span.TraceID
+		}
+	}
+	return
+}
+
+// Annotate returns a map that can be used to store trace span-specific data if
+// a trace is active in ctx. Otherwise it returns nil.
+func Annotate(ctx context.Context) map[string]interface{} {
+	if span := contextSpan(ctx); span != nil {
+		if span.Data == nil {
+			span.Data = make(map[string]interface{})
+		}
+		return span.Data
+	}
 	return nil
 }
 
-func record(rec Recorder, logger Logger) {
-	for s := range spans {
-		if err := rec.Record(s); err != nil {
-			if logger != nil {
-				logger.Println(fmt.Sprintf("failed to record trace %x span %x: %s", s.TraceId, s.SpanId, err))
-			}
-		}
-	}
-}
-
-// New starts a new trace.  If recording is active, a new Span is
-// allocated and returned, otherwise no allocation occurs and nil is
-// returned (along with an error).
-//
-// As a caller convenience, if traceId is non-zero, then that value is
-// used instead of generating a probablistically unique id.  This may
-// be useful for callers that want to generate their own id values.
-func New(traceId int64, kind string, name string) (*Span, error) {
-	if spans == nil {
-		return nil, errRecNotActive
-	}
-
-	spanId, err := GenerateId()
-	if err != nil {
-		return nil, err
-	}
-
-	if traceId == 0 {
-		traceId, err = GenerateId()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return &Span{
-		SpanId:  spanId,
-		TraceId: traceId,
-		Process: Process,
-		Kind:    kind,
-		Name:    name,
-	}, nil
-}
-
-// MaybeNew starts a new trace but ignores errors.
-func MaybeNew(traceId int64, kind string, name string) *Span {
-	s, _ := New(traceId, kind, name)
-	return s
-}
-
-// Continue continues an existing trace.  If recording is active, a
-// new Span instance is allocated and returned, otherwise no
-// allocation occurs and nil is returned (along with an error).
-func Continue(kind string, name string) (*Span, error) {
-	if spans == nil {
-		return nil, errRecNotActive
-	}
-
-	parentId := CurrentSpanId()
-	traceId := CurrentTraceId()
-	if parentId == 0 || traceId == 0 {
-		s, err := New(0, kind, name)
-		return s, err
-	}
-
-	spanId, err := GenerateId()
-	if err != nil {
-		return nil, err
-	}
-
-	return &Span{
-		SpanId:   spanId,
-		TraceId:  traceId,
-		ParentId: parentId,
-		Process:  Process,
-		Kind:     kind,
-		Name:     name,
-	}, nil
-}
-
-// MaybeContinue continues an existing trace but ignores errors.
-func MaybeContinue(kind string, name string) *Span {
-	s, _ := Continue(kind, name)
-	return s
-}
-
-// Run records a Span (to provide visibility that the span has
-// started), invokes the function f, and then records the Span a
-// second time (to update the finish time).
-func Run(s *Span, f func()) {
-	// If New or Continue returned nil, then ts is probably also
-	// nil. We quietly tolerate so that callers don't need to know
-	// or care whether recording is active.
-	if s != nil && spans != nil {
-		// Setup to record the span finish
-		defer func() {
-			s.Finish = time.Now()
-			s.FinishStr = s.Finish.Format(time.RFC3339Nano)
-			spans <- s
-		}()
-
-		// Save the span start time
-		s.Start = time.Now()
-		s.StartStr = s.Start.Format(time.RFC3339Nano)
-
-		// Stash the span id and trace id on the stack and invoke f
-		values := gls.Values{
-			spanIdKey:  s.SpanId,
-			traceIdKey: s.TraceId,
-		}
-
-		cm.SetValues(values, f)
-	} else {
-		f()
-	}
-}
-
-// Go functions similarly to Run, except that f is run in a new goroutine.
-func Go(s *Span, f func()) {
-	if s != nil && spans != nil {
-		gls.Go(func() {
-			Run(s, f)
-		})
-	} else {
-		go f()
-	}
-}
-
-// GenerateId returns a probablistically unique 64-bit id.  All id
-// values returned by this function will be positive integers.  This
-// may be useful for callers that want to generate their own id
-// values.
-func GenerateId() (int64, error) {
-	// Return a random int64, constrained to positive values
-	for retry := 0; retry < 3; retry++ {
+// GenerateId returns a probablistically unique 64-bit id if a trace is active
+// in ctx. All id values returned by this function will be positive integers.
+// This may be useful for callers that want to generate their own id values.
+func GenerateID(ctx context.Context) (int64, error) {
+	for {
+		// Return a random int64, constrained to positive values
 		var x uint64
 		if err := binary.Read(rand.Reader, binary.LittleEndian, &x); err != nil {
+			if logger := contextLogger(ctx); logger != nil {
+				msg := fmt.Sprintf("trace: error reading from rand.Reader: %s", err)
+				logger.Println(msg)
+			}
 			return 0, err
 		}
 
-		id := int64(x & math.MaxInt64)
-		if id > 0 {
+		if id := int64(x & math.MaxInt64); id > 0 {
 			return id, nil
 		}
-	}
-
-	// Failsafe
-	return 0, errors.New("rand.Reader failed to produce a useable value")
-}
-
-type Handler struct {
-	// Kind is the kind value used when starting new traces.
-	Kind string
-	// HeaderKey is the key used when ServeHTTP inserts an id header in requests or responses.
-	HeaderKey string
-	// HonorReqHeader determines whether or not ServeHTTP honors id headers in requests.
-	HonorReqHeader bool
-	// AddRespHeader determines whether or not ServeHTTP adds id headers to responses.
-	AddRespHeader bool
-}
-
-// NewHandler creates a middleware handler that facilitates HTTP
-// request tracing.
-//
-// If the request contains an id header and HonorReqHeader is true,
-// then the id values are used (allowing trace contexts to span
-// services).  Otherwise a new trace id is generated. An id header is
-// optionally added to the response.
-func NewHandler() *Handler {
-	return &Handler{
-		Kind:           "request",
-		HeaderKey:      "X-Request-Id",
-		HonorReqHeader: false,
-		AddRespHeader:  true,
-	}
-}
-
-func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.HandlerFunc) {
-	var (
-		traceId, parentId int64
-		s                 *Span
-	)
-
-	// Optionally honor incoming id headers. If present, header must be in the form "traceId:parentId".
-	if h.HonorReqHeader {
-		if hdr := req.Header.Get(h.HeaderKey); hdr != "" {
-			n, _ := fmt.Sscanf(hdr, "%d:%d", &traceId, &parentId)
-			if n < 2 || traceId < 1 || parentId < 1 {
-				traceId = 0
-				parentId = 0
-			}
-		}
-	}
-
-	// Start a new trace, either using an existing id (from the request header) or a new one
-	s, err := New(traceId, h.Kind, fmt.Sprintf("%s %s", req.Method, req.URL.Path))
-	if err == nil {
-		s.ParentId = parentId
-
-		// Add headers
-		req.Header.Set(h.HeaderKey, fmt.Sprintf("%d:%d", s.TraceId, s.SpanId))
-		if h.AddRespHeader {
-			rw.Header().Set(h.HeaderKey, fmt.Sprintf("%d", s.TraceId))
-		}
-
-		// Invoke the next handler
-		Run(s, func() {
-			next(rw, req)
-		})
-	} else {
-		// Invoke the next handler
-		next(rw, req)
 	}
 }

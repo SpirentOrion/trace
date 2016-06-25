@@ -1,19 +1,14 @@
-BUILD_PATH	?= .
+BUILD_PATH ?= .
 
-.PHONY: all restore build clean
+.PHONY: all build test clean
 
-all: build
-
-restore:
-	cd $(BUILD_PATH) && godep restore
+all: build test
 
 build:
-	(cd $(BUILD_PATH) && \
-	 go get -t ./... && \
-	 go build -a -v ./... && \
-	 go test ./...)
+	cd $(BUILD_PATH) && go build .
 
-rebase:
-	godep update `cat Godeps/Godeps.json | jq -r .Deps[].ImportPath`
+test:
+	cd $(BUILD_PATH) && go test -race .
 
 clean:
+	go clean -i ./...
