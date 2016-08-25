@@ -13,9 +13,9 @@ var (
 // Span tracks an activity within a trace.
 // Note: YAML struct tags are included for backwards-compatibility with V1 code.
 type Span struct {
-	SpanID    int64                  `json:"span_id" yaml:"span_id"`
-	TraceID   int64                  `json:"trace_id" yaml:"trace_id"`
-	ParentID  int64                  `json:"parent_id" yaml:"parent_id"`
+	SpanID    int64                  `json:"span_id,string" yaml:"span_id"`
+	TraceID   int64                  `json:"trace_id,string" yaml:"trace_id"`
+	ParentID  int64                  `json:"parent_id,string" yaml:"parent_id"`
 	Process   string                 `json:"process,omitempty" yaml:",omitempty"`
 	Kind      string                 `json:"kind,omitempty" yaml:",omitempty"`
 	Name      string                 `json:"name,omitempty" yaml:",omitempty"`
