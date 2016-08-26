@@ -86,6 +86,18 @@ func contextParentID(ctx context.Context) (parentID int64) {
 	return
 }
 
+// WithContext returns a new context.Context instance merging trace and parent
+// id values from a context.Context where tracing is active.
+func WithContext(ctx context.Context, traceCtx context.Context) context.Context {
+	traceID, _ := traceCtx.Value(contextTraceIDKey).(int64)
+	parentID, _ := traceCtx.Value(contextParentIDKey).(int64)
+	if traceID > 0 && parentID > 0 {
+		return WithTraceID(WithParentID(ctx, parentID), traceID)
+	} else {
+		return ctx
+	}
+}
+
 func withSpans(ctx context.Context, spans chan *Span) context.Context {
 	return context.WithValue(ctx, contextSpansKey, spans)
 }
