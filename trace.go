@@ -15,6 +15,7 @@ const defaultBuffer = 256
 var (
 	errMissingContext  = errors.New("context is required to start trace recording")
 	errMissingRecorder = errors.New("recorder is required to start trace recording")
+	errNotRecording    = errors.New("trace recording has not been started")
 )
 
 // Logger is an interface compatible with log.Logger.
@@ -41,6 +42,23 @@ func Record(ctx context.Context, rec Recorder) (context.Context, error) {
 	ctx = withSpans(ctx, spans)
 
 	go record(ctx, rec)
+	return ctx, nil
+}
+
+// Join creates a new context that joins trace recording already in progress. If
+// the original trace recording context is canceled then recording stops in all
+// joined contexts. Cancellation of joined contexts has no effect on recording.
+func Join(ctx context.Context, traceCtx context.Context) (context.Context, error) {
+	if ctx == nil || traceCtx == nil {
+		return nil, errMissingContext
+	}
+
+	spans := contextSpans(traceCtx)
+	if spans == nil {
+		return nil, errNotRecording
+	}
+
+	ctx = withSpans(ctx, spans)
 	return ctx, nil
 }
 
@@ -72,7 +90,7 @@ func record(ctx context.Context, rec Recorder) {
 // representing a new trace span, or with the caller-provided ctx if recording
 // is not active or an error occurs.
 func Do(ctx context.Context, kind string, name string, act func(context.Context)) {
-	// If recording is not active, we are done right away
+	// If recording is not active in this context then we are done right away
 	var spans chan *Span
 	if ctx != nil {
 		spans = contextSpans(ctx)

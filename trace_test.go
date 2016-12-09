@@ -32,39 +32,48 @@ func TestDo(t *testing.T) {
 		cancelFunc()
 	}()
 
-	var err error
-	if ctx0, err = Record(ctx0, &nullRecorder{}); err != nil {
+	ctx0, err := Record(ctx0, &nullRecorder{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	Do(ctx0, "testing", "Test1", func(ctx1 context.Context) {
-		spanID1 := CurrentSpanID(ctx1)
-		if spanID1 <= 0 {
-			t.Error("Do() started trace with invalid span id")
+	Do(ctx0, "testing", "TestInOriginalContext", func(ctx1 context.Context) { assertInTestContext(t, ctx1) })
+
+	jctx0, err := Join(context.Background(), ctx0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	Do(jctx0, "testing", "TestInJoinedContext", func(ctx1 context.Context) { assertInTestContext(t, ctx1) })
+}
+
+func assertInTestContext(t *testing.T, ctx1 context.Context) {
+	spanID1 := CurrentSpanID(ctx1)
+	if spanID1 <= 0 {
+		t.Error("Do() started trace with invalid span id")
+	}
+
+	traceID1 := CurrentTraceID(ctx1)
+	if traceID1 <= 0 {
+		t.Error("Do() started trace with invalid trace id")
+	}
+
+	Do(ctx1, "testing", "Test2", func(ctx2 context.Context) {
+		spanID2 := CurrentSpanID(ctx2)
+		if spanID2 <= 0 {
+			t.Error("Do() continued trace with invalid span id")
+		}
+		if spanID2 == spanID1 {
+			t.Error("Do() continued trace with parent's span id")
 		}
 
-		traceID1 := CurrentTraceID(ctx1)
-		if traceID1 <= 0 {
-			t.Error("Do() started trace with invalid trace id")
+		traceID2 := CurrentTraceID(ctx2)
+		if traceID2 <= 0 {
+			t.Error("Do() continued trace with invalid trace id")
 		}
-
-		Do(ctx1, "testing", "Test2", func(ctx2 context.Context) {
-			spanID2 := CurrentSpanID(ctx2)
-			if spanID2 <= 0 {
-				t.Error("Do() continued trace with invalid span id")
-			}
-			if spanID2 == spanID1 {
-				t.Error("Do() continued trace with parent's span id")
-			}
-
-			traceID2 := CurrentTraceID(ctx2)
-			if traceID2 <= 0 {
-				t.Error("Do() continued trace with invalid trace id")
-			}
-			if traceID2 != traceID1 {
-				t.Error("Do() continued trace but generated a new trace id")
-			}
-		})
+		if traceID2 != traceID1 {
+			t.Error("Do() continued trace but generated a new trace id")
+		}
 	})
 }
 
