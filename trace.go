@@ -134,7 +134,10 @@ func Do(ctx context.Context, kind string, name string, act func(context.Context)
 	}
 	defer func() {
 		span.Finish = time.Now()
-		spans <- span
+		select {
+		case spans <- span:
+		default:
+		}
 	}()
 
 	// Perform the activity with a new context
